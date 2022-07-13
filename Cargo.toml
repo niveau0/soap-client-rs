@@ -1,0 +1,15 @@
+[package]
+name = "soap-client-rs"
+version = "0.1.0"
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+quick-xml = { version = "0.31", features = ["serialize"] }
+serde = { version = "1.0", features = ["derive"] }
+xmltree = "0.10"
+log = "0.4.27"
+
+[dev-dependencies]
+tempfile = "3.19.1"
