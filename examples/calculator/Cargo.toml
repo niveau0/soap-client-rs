@@ -1,0 +1,18 @@
+[package]
+name = "calculator-example"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["tracing"]
+tracing = ["soapus-runtime/tracing"]
+
+[dependencies]
+soapus-runtime = { path = "../../soapus-runtime" }
+tokio = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[build-dependencies]
+soapus-codegen = { path = "../../soapus-codegen" }

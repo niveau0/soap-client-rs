@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = [
+    "soapus-codegen",
+    "soapus-runtime",
+    "soapus-cli",
+    "examples/calculator",
+    "examples/observability",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["niveau0"]
+license = "MIT"
+repository = "https://github.com/niveau0/soapus"
+homepage = "https://github.com/niveau0/soapus"
+
+[workspace.dependencies]
+# XML Processing
+quick-xml = { version = "0.36", features = ["serialize"] }
+xmltree = "0.10"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async Runtime
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+
+# HTTP Client
+reqwest = { version = "0.12", features = ["json"] }
+
+# Code Generation
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+
+# Utilities
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Tracing & Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Testing
+tempfile = "3.10"

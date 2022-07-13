@@ -1,0 +1,31 @@
+# Prometheus Configuration for SOAP Client Observability Example
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'soap-client-monitor'
+
+# Scrape configurations
+scrape_configs:
+  # Scrape metrics from the SOAP client example service
+  - job_name: 'soap-client-example'
+    static_configs:
+      - targets: ['host.docker.internal:3000']
+        labels:
+          service: 'soap-client-observability-example'
+          environment: 'dev'
+    
+    scrape_interval: 5s
+    scrape_timeout: 5s
+    
+    metric_relabel_configs:
+      # Keep only SOAP-related metrics
+      - source_labels: [__name__]
+        regex: 'soap_.*'
+        action: keep
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

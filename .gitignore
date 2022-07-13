@@ -1,0 +1,7 @@
+.idea
+.vscode
+/target
+
+# Ignore WSDL files in general, but keep test data
+*.wsdl
+!testdata/**/*.wsdl

@@ -1,0 +1,38 @@
+[package]
+name = "observability-example"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["tracing", "metrics"]
+tracing = ["soapus-runtime/tracing"]
+metrics = ["soapus-runtime/metrics"]
+
+[dependencies]
+# SOAP Client
+soapus-runtime = { path = "../../soapus-runtime", features = ["tracing", "metrics"] }
+tokio = { workspace = true, features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+
+# Tracing & Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
+tracing-opentelemetry = "0.22"
+opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.14", features = ["trace", "metrics"] }
+opentelemetry-jaeger = { version = "0.20", features = ["rt-tokio"] }
+
+# Metrics
+metrics = "0.21"
+metrics-exporter-prometheus = { version = "0.13", default-features = false }
+
+# Web server for metrics endpoint
+axum = "0.7"
+tower = "0.4"
+
+# Utilities
+anyhow = "1.0"
+
+[build-dependencies]
+soapus-codegen = { path = "../../soapus-codegen" }
