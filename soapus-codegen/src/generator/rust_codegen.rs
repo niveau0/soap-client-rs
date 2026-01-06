@@ -24,25 +24,12 @@ pub fn generate_complex_type(
             .map(|s| s.elements.is_empty())
             .unwrap_or(true);
 
-    // Check if type contains floating point fields (can't derive Eq)
-    let has_float = complex_type
-        .sequence
-        .as_ref()
-        .map(|s| {
-            s.elements.iter().any(|elem| {
-                let rust_type = type_mapper.map_type(&elem.type_);
-                rust_type.contains("f32") || rust_type.contains("f64")
-            })
-        })
-        .unwrap_or(false);
-
+    // Derives: Always use PartialEq (not Eq) to avoid issues with floats
+    // in nested types that we might not detect recursively
     if is_empty {
-        output
-            .push_str("#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]\n");
-    } else if has_float {
-        output.push_str("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]\n");
+        output.push_str("#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]\n");
     } else {
-        output.push_str("#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]\n");
+        output.push_str("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]\n");
     }
 
     // Struct definition
@@ -103,7 +90,7 @@ pub fn generate_simple_type_enum(name: &str, simple_type: &SimpleType) -> Result
 
             let mut output = String::new();
             output.push_str(&format!("/// Generated from XSD simpleType: {}\n", name));
-            output.push_str("#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]\n");
+            output.push_str("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]\n");
             output.push_str(&format!("pub enum {} {{\n", to_pascal_case(name)));
 
             for val in enums {
@@ -235,7 +222,6 @@ mod tests {
         assert!(code.contains("pub user_name: String"));
         assert!(code.contains("#[serde(rename = \"userName\")]"));
         assert!(code.contains("PartialEq"));
-        assert!(code.contains("Eq"));
     }
 
     #[test]
@@ -247,7 +233,6 @@ mod tests {
         assert!(code.contains("pub struct EmptyType"));
         assert!(code.contains("Default"));
         assert!(code.contains("PartialEq"));
-        assert!(code.contains("Eq"));
     }
 
     #[test]
@@ -312,8 +297,7 @@ mod tests {
 
         assert!(code.contains("pub price: f64"));
         assert!(code.contains("PartialEq"));
-        // Should not have Eq derive when float is present
-        assert!(!code.contains("PartialEq, Eq"));
+        // Floats are handled - no Eq is derived anywhere anymore
     }
 
     #[test]
