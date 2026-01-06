@@ -44,24 +44,30 @@ impl SoapEnvelope {
         #[cfg(feature = "tracing")]
         debug!(soap_version = ?version, "Building SOAP envelope");
 
-        Self::build_with_namespace(body, version, None)
+        Self::build_with_namespace(body, version, None, true)
     }
 
     /// Build a SOAP envelope with optional namespace on the body element
+    ///
+    /// # Arguments
+    ///
+    /// * `element_form_qualified` - If false, namespace is only added to root element,
+    ///   not inherited by children (for elementFormDefault="unqualified" in XSD)
     pub fn build_with_namespace<T>(
         body: &T,
         version: SoapVersion,
         namespace: Option<&str>,
+        element_form_qualified: bool,
     ) -> SoapResult<String>
     where
         T: Serialize,
     {
         #[cfg(feature = "tracing")]
-        debug!(soap_version = ?version, namespace = ?namespace, "Building SOAP envelope with namespace");
+        debug!(soap_version = ?version, namespace = ?namespace, element_form_qualified = %element_form_qualified, "Building SOAP envelope with namespace");
 
         match version {
-            SoapVersion::Soap11 => Self::build_soap11(body, namespace),
-            SoapVersion::Soap12 => Self::build_soap12(body, namespace),
+            SoapVersion::Soap11 => Self::build_soap11(body, namespace, element_form_qualified),
+            SoapVersion::Soap12 => Self::build_soap12(body, namespace, element_form_qualified),
         }
     }
 
@@ -76,7 +82,11 @@ impl SoapEnvelope {
     ///   </soap:Body>
     /// </soap:Envelope>
     /// ```
-    pub fn build_soap11<T>(body: &T, namespace: Option<&str>) -> SoapResult<String>
+    pub fn build_soap11<T>(
+        body: &T,
+        namespace: Option<&str>,
+        element_form_qualified: bool,
+    ) -> SoapResult<String>
     where
         T: Serialize,
     {
@@ -84,7 +94,16 @@ impl SoapEnvelope {
         debug!("Serializing request body to XML");
 
         let body_xml = if let Some(ns) = namespace {
-            Self::serialize_to_xml_with_namespace(body, ns)?
+            if element_form_qualified {
+                // Serialize with namespace - quick-xml will qualify all child elements
+                Self::serialize_to_xml_with_namespace(body, ns)?
+            } else {
+                // Serialize without namespace, then add namespace PREFIX to root element
+                // Using a prefix (ns:element) instead of default namespace (xmlns="...")
+                // prevents child elements from inheriting the namespace
+                let xml = Self::serialize_to_xml(body)?;
+                Self::add_namespace_prefix_to_root(&xml, ns, "ns")
+            }
         } else {
             Self::serialize_to_xml(body)?
         };
@@ -112,7 +131,11 @@ impl SoapEnvelope {
     ///   </env:Body>
     /// </env:Envelope>
     /// ```
-    pub fn build_soap12<T>(body: &T, namespace: Option<&str>) -> SoapResult<String>
+    pub fn build_soap12<T>(
+        body: &T,
+        namespace: Option<&str>,
+        element_form_qualified: bool,
+    ) -> SoapResult<String>
     where
         T: Serialize,
     {
@@ -120,7 +143,16 @@ impl SoapEnvelope {
         debug!("Serializing request body to XML");
 
         let body_xml = if let Some(ns) = namespace {
-            Self::serialize_to_xml_with_namespace(body, ns)?
+            if element_form_qualified {
+                // Serialize with namespace - quick-xml will qualify all child elements
+                Self::serialize_to_xml_with_namespace(body, ns)?
+            } else {
+                // Serialize without namespace, then add namespace PREFIX to root element
+                // Using a prefix (ns:element) instead of default namespace (xmlns="...")
+                // prevents child elements from inheriting the namespace
+                let xml = Self::serialize_to_xml(body)?;
+                Self::add_namespace_prefix_to_root(&xml, ns, "ns")
+            }
         } else {
             Self::serialize_to_xml(body)?
         };
@@ -192,6 +224,88 @@ impl SoapEnvelope {
         }
     }
 
+    /// Add namespace prefix to the root element of an XML string
+    ///
+    /// Converts `<Add>...</Add>` to `<prefix:Add xmlns:prefix="...">...</prefix:Add>`
+    /// This prevents child elements from inheriting the namespace (for elementFormDefault="unqualified")
+    fn add_namespace_prefix_to_root(xml: &str, namespace: &str, prefix: &str) -> String {
+        // Find the opening and closing tags
+        if let Some(start_pos) = xml.find('<') {
+            if let Some(end_pos) = xml.find('>') {
+                // Extract tag name
+                let tag_content = &xml[start_pos + 1..end_pos];
+                let tag_name = tag_content.split_whitespace().next().unwrap_or(tag_content);
+
+                // Check if self-closing
+                let is_self_closing = xml.as_bytes()[end_pos - 1] == b'/';
+
+                if is_self_closing {
+                    // Self-closing: <Tag/> -> <prefix:Tag xmlns:prefix="..."/>
+                    let insert_pos = end_pos - 1;
+                    format!(
+                        "<{}:{} xmlns:{}=\"{}\"{}",
+                        prefix,
+                        tag_name,
+                        prefix,
+                        namespace,
+                        &xml[insert_pos..]
+                    )
+                } else {
+                    // Find closing tag
+                    let closing_tag = format!("</{}>", tag_name);
+                    if let Some(close_pos) = xml.rfind(&closing_tag) {
+                        // <Tag>content</Tag> -> <prefix:Tag xmlns:prefix="...">content</prefix:Tag>
+                        let content = &xml[end_pos + 1..close_pos];
+                        format!(
+                            "<{}:{} xmlns:{}=\"{}\">{}</{}:{}>",
+                            prefix, tag_name, prefix, namespace, content, prefix, tag_name
+                        )
+                    } else {
+                        // Fallback to default namespace
+                        Self::add_namespace_to_root(xml, namespace)
+                    }
+                }
+            } else {
+                xml.to_string()
+            }
+        } else {
+            xml.to_string()
+        }
+    }
+
+    /// Fix unescaped ampersands in XML
+    ///
+    /// Replaces `&` with `&amp;` unless it's part of a valid entity reference.
+    /// This handles server bugs where text contains unescaped ampersands like "1&4".
+    fn fix_unescaped_ampersands(xml: &str) -> String {
+        let mut result = String::with_capacity(xml.len());
+        let mut chars = xml.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '&' {
+                // Check if this is a valid entity reference
+                let lookahead: String = chars.clone().take(10).collect();
+                if lookahead.starts_with("amp;")
+                    || lookahead.starts_with("lt;")
+                    || lookahead.starts_with("gt;")
+                    || lookahead.starts_with("quot;")
+                    || lookahead.starts_with("apos;")
+                    || lookahead.starts_with("#")
+                {
+                    // Valid entity, keep as-is
+                    result.push(ch);
+                } else {
+                    // Invalid, escape it
+                    result.push_str("&amp;");
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        result
+    }
+
     /// Parse a SOAP response and extract the body content
     ///
     /// This function extracts the content between `<soap:Body>` or `<env:Body>` tags
@@ -203,10 +317,14 @@ impl SoapEnvelope {
         #[cfg(feature = "tracing")]
         debug!(response_size = xml.len(), "Parsing SOAP response");
 
+        // Fix invalid XML: replace unescaped & with &amp;
+        // This handles server bugs where text contains unescaped ampersands
+        let fixed_xml = Self::fix_unescaped_ampersands(xml);
+
         use quick_xml::events::Event;
         use quick_xml::Reader;
 
-        let mut reader = Reader::from_str(xml);
+        let mut reader = Reader::from_str(&fixed_xml);
 
         let mut buf = Vec::new();
         let mut in_body = false;
@@ -293,8 +411,11 @@ impl SoapEnvelope {
             "Extracted body content from SOAP response"
         );
 
+        // Fix unescaped ampersands in body content before deserialization
+        let fixed_body_content = Self::fix_unescaped_ampersands(&body_content);
+
         // Deserialize the body content
-        quick_xml::de::from_str(&body_content)
+        quick_xml::de::from_str(&fixed_body_content)
             .map_err(|e| SoapError::DeserializationError(e.to_string()))
     }
 
@@ -389,7 +510,7 @@ mod tests {
             value: 42,
         };
 
-        let envelope = SoapEnvelope::build_soap11(&request, None).unwrap();
+        let envelope = SoapEnvelope::build_soap11(&request, None, true).unwrap();
         println!("SOAP 1.1 Envelope:\n{}", envelope);
 
         assert!(envelope.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
@@ -409,7 +530,7 @@ mod tests {
             value: 42,
         };
 
-        let envelope = SoapEnvelope::build_soap12(&request, None).unwrap();
+        let envelope = SoapEnvelope::build_soap12(&request, None, true).unwrap();
         println!("SOAP 1.2 Envelope:\n{}", envelope);
 
         assert!(envelope.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
@@ -508,4 +629,99 @@ mod tests {
     fn test_default_soap_version() {
         assert_eq!(SoapVersion::default(), SoapVersion::Soap11);
     }
+
+    #[test]
+    fn test_element_form_qualified() {
+        #[derive(Serialize)]
+        struct TestRequest {
+            user_name: String,
+            password: String,
+        }
+
+        let request = TestRequest {
+            user_name: "admin".to_string(),
+            password: "secret".to_string(),
+        };
+
+        // Test with element_form_qualified = true (default)
+        let envelope_qualified =
+            SoapEnvelope::build_soap11(&request, Some("urn:test"), true).unwrap();
+
+        // Should have namespace on root and children inherit it
+        assert!(envelope_qualified.contains("<TestRequest xmlns=\"urn:test\">"));
+
+        // Test with element_form_qualified = false (unqualified children)
+        let envelope_unqualified =
+            SoapEnvelope::build_soap11(&request, Some("urn:test"), false).unwrap();
+
+        // Should have namespace prefix on root element
+        assert!(envelope_unqualified.contains("<ns:TestRequest xmlns:ns=\"urn:test\">"));
+        assert!(envelope_unqualified.contains("</ns:TestRequest>"));
+        // Child elements should have NO prefix (no namespace)
+        assert!(envelope_unqualified.contains("<user_name>admin</user_name>"));
+        assert!(envelope_unqualified.contains("<password>secret</password>"));
+    }
+}
+
+#[test]
+fn test_fix_unescaped_ampersands() {
+    // Test valid entities - should remain unchanged
+    assert_eq!(
+        SoapEnvelope::fix_unescaped_ampersands("&amp; &lt; &gt; &quot; &apos;"),
+        "&amp; &lt; &gt; &quot; &apos;"
+    );
+
+    // Test numeric entities - should remain unchanged
+    assert_eq!(
+        SoapEnvelope::fix_unescaped_ampersands("&#123; &#xAB;"),
+        "&#123; &#xAB;"
+    );
+
+    // Test unescaped ampersand - should be escaped
+    assert_eq!(SoapEnvelope::fix_unescaped_ampersands("1&4"), "1&amp;4");
+
+    // Test real-world example from Rotorsoft
+    assert_eq!(
+        SoapEnvelope::fix_unescaped_ampersands("<name>Ville 1&4 (E)</name>"),
+        "<name>Ville 1&amp;4 (E)</name>"
+    );
+
+    // Test mixed content
+    assert_eq!(
+        SoapEnvelope::fix_unescaped_ampersands("A&B &amp; C&D"),
+        "A&amp;B &amp; C&amp;D"
+    );
+}
+
+#[test]
+fn test_parse_response_with_unescaped_ampersand() {
+    #[derive(Debug, PartialEq, serde::Deserialize)]
+    struct TestResponse {
+        name: String,
+    }
+
+    // Simulate a SOAP response with unescaped ampersand (like from Rotorsoft)
+    let soap_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <TestResponse>
+      <name>Ville 1&4 (E)</name>
+    </TestResponse>
+  </soap:Body>
+</soap:Envelope>"#;
+
+    let result: Result<TestResponse, _> = SoapEnvelope::parse_response(soap_xml);
+
+    match &result {
+        Ok(_) => {}
+        Err(e) => eprintln!("Parse error: {}", e),
+    }
+
+    assert!(
+        result.is_ok(),
+        "Should successfully parse despite unescaped ampersand: {:?}",
+        result.err()
+    );
+    let response = result.unwrap();
+    assert_eq!(response.name, "Ville 1&4 (E)");
 }

@@ -33,20 +33,21 @@
 //! #[tokio::main]
 //! async fn main() -> SoapResult<()> {
 //!     let client = SoapClient::new("http://example.com/soap");
-//!     
+//!
 //!     let request = MyRequest {
 //!         field: "value".to_string(),
 //!     };
-//!     
+//!
 //!     let response: MyResponse = client
 //!         .call_with_soap_action(
 //!             "MyOperation",
 //!             Some("http://example.com/MyOperation"),
 //!             Some("http://tempuri.org/"),
+//!             true,
 //!             &MyRequest { field: "value".to_string() },
 //!         )
 //!         .await?;
-//!     
+//!
 //!     println!("Result: {}", response.result);
 //!     Ok(())
 //! }

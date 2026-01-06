@@ -143,7 +143,7 @@ impl SoapClient {
         let start = std::time::Instant::now();
 
         let result = self
-            .call_with_soap_action(operation, None, None, request)
+            .call_with_soap_action(operation, None, None, true, request)
             .await;
 
         #[cfg(feature = "metrics")]
@@ -193,6 +193,7 @@ impl SoapClient {
         operation: &str,
         soap_action: Option<&str>,
         namespace: Option<&str>,
+        element_form_qualified: bool,
         request: &Req,
     ) -> SoapResult<Resp>
     where
@@ -200,10 +201,15 @@ impl SoapClient {
         Resp: for<'de> Deserialize<'de>,
     {
         #[cfg(feature = "tracing")]
-        debug!(operation = %operation, soap_action = ?soap_action, namespace = ?namespace, "Building SOAP envelope");
+        debug!(operation = %operation, soap_action = ?soap_action, namespace = ?namespace, element_form_qualified = %element_form_qualified, "Building SOAP envelope");
 
         // Build SOAP envelope with namespace if provided
-        let envelope = SoapEnvelope::build_with_namespace(request, self.soap_version, namespace)?;
+        let envelope = SoapEnvelope::build_with_namespace(
+            request,
+            self.soap_version,
+            namespace,
+            element_form_qualified,
+        )?;
 
         #[cfg(feature = "tracing")]
         debug!(envelope_size = envelope.len(), "SOAP envelope built");
