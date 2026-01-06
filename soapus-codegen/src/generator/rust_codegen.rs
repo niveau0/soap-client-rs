@@ -32,8 +32,13 @@ pub fn generate_complex_type(
         output.push_str("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]\n");
     }
 
-    // Struct definition
+    // Add serde rename if the Rust struct name differs from XML name
     let struct_name = to_pascal_case(name);
+    if struct_name != name {
+        output.push_str(&format!("#[serde(rename = \"{}\")]\n", name));
+    }
+
+    // Struct definition
     output.push_str(&format!("pub struct {} {{\n", struct_name));
 
     // Fields from sequence
