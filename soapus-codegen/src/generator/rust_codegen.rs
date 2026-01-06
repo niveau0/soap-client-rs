@@ -183,14 +183,15 @@ pub fn generate_operation_method(
     ));
 
     // Use call_with_soap_action with namespace and optional SOAPAction
+    // If elementFormDefault="unqualified", don't set namespace to avoid quick-xml qualifying child elements
     if let Some(action) = soap_action {
         output.push_str(&format!(
-            "        self.client.call_with_soap_action(\"{}\", Some(\"{}\"), Some(TARGET_NAMESPACE), &request).await\n",
+            "        self.client.call_with_soap_action(\"{}\", Some(\"{}\"), if ELEMENT_FORM_QUALIFIED {{ Some(TARGET_NAMESPACE) }} else {{ None }}, &request).await\n",
             operation.name, action
         ));
     } else {
         output.push_str(&format!(
-            "        self.client.call_with_soap_action(\"{}\", None, Some(TARGET_NAMESPACE), &request).await\n",
+            "        self.client.call_with_soap_action(\"{}\", None, if ELEMENT_FORM_QUALIFIED {{ Some(TARGET_NAMESPACE) }} else {{ None }}, &request).await\n",
             operation.name
         ));
     }
